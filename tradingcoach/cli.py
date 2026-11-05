@@ -10,6 +10,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from .csv_import import CsvImportError, import_files
 from .topstepx import DEFAULT_BASE_URL, TopstepXClient, TopstepXError
 
 SIDES = {0: "BUY", 1: "SELL"}
@@ -106,6 +107,28 @@ def cmd_export(args) -> int:
     return 0
 
 
+def cmd_import_csv(args) -> int:
+    out_file = Path(args.out) / "trades_csv.csv"
+    try:
+        rows, errors = import_files(args.files, out_file, args.account)
+    except CsvImportError as e:
+        print(f"✖ {e}", file=sys.stderr)
+        return 1
+    for err in errors:
+        print(f"✖ {err}", file=sys.stderr)
+    summary: dict[str, list[float]] = {}
+    for r in rows:
+        s = summary.setdefault(str(r["account_name"]), [0, 0.0])
+        s[0] += 1
+        net = r["net_pnl"]
+        s[1] += float(net) if net not in (None, "") else 0.0
+    print(f"{'Compte':<32} {'Trades':>7} {'P&L net':>12}")
+    for name, (count, net) in sorted(summary.items()):
+        print(f"{name:<32} {count:>7} {net:>12.2f}")
+    print(f"✔ {len(rows)} trade(s) au total dans {out_file}")
+    return 1 if errors else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="tradingcoach", description="Export de l'historique TopstepX")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -115,6 +138,11 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--months", type=float, default=6, help="Nombre de mois à remonter (défaut : 6)")
     e.add_argument("--out", default="data", help="Dossier de sortie (défaut : data)")
     e.set_defaults(func=cmd_export)
+    i = sub.add_parser("import-csv", help="Importer des CSV exportés depuis TopstepX (onglet Trades)")
+    i.add_argument("files", nargs="+", help="Fichiers CSV ou dossiers contenant des CSV")
+    i.add_argument("--account", help="Nom du compte (par défaut : nom du fichier, ou colonne Account)")
+    i.add_argument("--out", default="data", help="Dossier de sortie (défaut : data)")
+    i.set_defaults(func=cmd_import_csv)
     args = p.parse_args(argv)
     try:
         return args.func(args)
