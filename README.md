@@ -57,6 +57,14 @@ L'export demande tous les comptes (`onlyActiveAccounts: false`) puis tente de r�
 
 Comptes clôturés : coche **« Show Closed Accounts »** dans le sélecteur de compte ou dans l'onglet Accounts du tableau de bord Topstep, puis refais les mêmes étapes. Si l'export n'est pas proposé pour un compte fermé, demande l'historique au support Topstep.
 
+### Autres prop firms (Lucid Trading, etc.)
+
+L'import reconnaît aussi :
+- le rapport **Performance de Tradovate** (colonnes `buyFillId`, `boughtTimestamp`, `pnl`…). Le sens long ou short est déduit de l'ordre achat/vente ;
+- l'onglet **Trades de NinjaTrader 8** (colonnes `Trade number`, `Market pos.`, `Profit`…).
+
+Nomme les fichiers avec un préfixe de firme, par exemple `LUCID-123456.csv`, pour distinguer les comptes dans le journal. Le rapport Tradovate ne contient pas les frais, donc le P&L y est brut.
+
 ### Importer
 
 Mets tous les CSV dans un dossier, par exemple `exports/`, puis lance :

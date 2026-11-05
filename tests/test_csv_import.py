@@ -53,6 +53,38 @@ class CsvImportTest(unittest.TestCase):
         self.assertEqual(rows[0]["side"], "SHORT")
         self.assertEqual(rows[0]["account_name"], "EXPRESS")
 
+    def test_tradovate_performance_report(self):
+        text = (
+            "symbol,_priceFormat,_priceFormatType,_tickSize,buyFillId,sellFillId,qty,buyPrice,sellPrice,"
+            "pnl,boughtTimestamp,soldTimestamp,duration\n"
+            "MNQZ6,-2,0,0.25,111,222,1,20000.25,20010.25,$20.00,10/01/2026 14:30:05,10/01/2026 14:35:10,5min 5sec\n"
+            "MNQZ6,-2,0,0.25,333,444,2,20020.00,20015.00,$(20.00),10/01/2026 15:05:00,10/01/2026 15:00:00,5min\n"
+        )
+        rows = read_trades_csv(self.write("LUCID-123.csv", text))
+        self.assertEqual(rows[0]["side"], "LONG")
+        self.assertEqual(rows[0]["entry_price"], 20000.25)
+        self.assertEqual(rows[0]["trade_id"], "111-222")
+        self.assertEqual(rows[0]["trade_day"], "2026-10-01")
+        self.assertEqual(rows[1]["side"], "SHORT")
+        self.assertEqual(rows[1]["entry_time"], "2026-10-01T15:00:00")
+        self.assertEqual(rows[1]["entry_price"], 20015.0)
+        self.assertEqual(rows[1]["pnl"], -20.0)
+
+    def test_ninjatrader_trades_grid(self):
+        text = (
+            "Trade number,Instrument,Account,Strategy,Market pos.,Qty,Entry price,Exit price,Entry time,"
+            "Exit time,Entry name,Exit name,Profit,Cum. net profit,Commission,MAE,MFE,ETD,Bars\n"
+            "1,MNQ DEC26,LTE123456,,Short,1,20010.25,20000.25,10/1/2026 2:30:05 PM,10/1/2026 2:35:10 PM,"
+            "Sell,Buy,$20.00,$20.00,$0.00,$5.00,$25.00,$5.00,0\n"
+        )
+        rows = read_trades_csv(self.write("nt.csv", text))
+        r = rows[0]
+        self.assertEqual(r["account_name"], "LTE123456")
+        self.assertEqual(r["trade_id"], "1")
+        self.assertEqual(r["side"], "SHORT")
+        self.assertEqual(r["entry_time"], "2026-10-01T14:30:05")
+        self.assertEqual(r["pnl"], 20.0)
+
     def test_unknown_format_is_reported(self):
         self.write("bad.csv", "foo,bar\n1,2\n")
         self.write("A.csv", TOPSTEPX_STYLE)

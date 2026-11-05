@@ -19,9 +19,9 @@ OUTPUT_COLUMNS = [
 ]
 
 ALIASES = {
-    "trade_id": ["id", "tradeid", "trade"],
+    "trade_id": ["id", "tradeid", "trade", "tradenumber"],
     "contract": ["contractname", "contract", "symbol", "instrument", "contractid"],
-    "side": ["type", "side", "direction", "position"],
+    "side": ["type", "side", "direction", "position", "marketpos"],
     "size": ["size", "qty", "quantity", "contracts"],
     "entry_time": ["enteredat", "entrytime", "entrydate", "opentime", "entered", "timeentered"],
     "exit_time": ["exitedat", "exittime", "exitdate", "closetime", "exited", "timeexited"],
@@ -32,6 +32,13 @@ ALIASES = {
     "fees": ["fees", "fee"],
     "commissions": ["commissions", "commission"],
     "account_name": ["account", "accountname", "accountid"],
+    # Tradovate "Performance" report: one buy fill + one sell fill per row.
+    "buy_time": ["boughttimestamp"],
+    "sell_time": ["soldtimestamp"],
+    "buy_price": ["buyprice"],
+    "sell_price": ["sellprice"],
+    "buy_fill": ["buyfillid"],
+    "sell_fill": ["sellfillid"],
 }
 
 DATE_FORMATS = [
@@ -84,6 +91,14 @@ def parse_date(value: str | None) -> str:
     return s
 
 
+def _as_datetime(value: str | None) -> datetime | None:
+    iso = parse_date(value)
+    try:
+        return datetime.fromisoformat(iso).replace(tzinfo=None) if iso else None
+    except ValueError:
+        return None
+
+
 def _normalize_side(value: str | None) -> str:
     v = (value or "").strip().lower()
     if v in {"long", "buy", "bid", "0", "achat"}:
@@ -115,7 +130,7 @@ def read_trades_csv(path: Path, account_name: str | None = None) -> list[dict]:
     reader = csv.DictReader(text.splitlines(), dialect=dialect)
     headers = reader.fieldnames or []
     mapping = _map_columns(headers)
-    if "pnl" not in mapping or not ({"entry_time", "exit_time", "trade_day"} & mapping.keys()):
+    if "pnl" not in mapping or not ({"entry_time", "exit_time", "trade_day", "buy_time"} & mapping.keys()):
         raise CsvImportError(
             f"{path.name} : format non reconnu. Colonnes trouvées : {', '.join(headers)}. "
             "Il faut au moins une colonne de P&L et une colonne de date."
@@ -131,17 +146,30 @@ def read_trades_csv(path: Path, account_name: str | None = None) -> list[dict]:
         commissions = parse_number(get("commissions"))
         net = None if pnl is None else round(pnl - (fees or 0) - (commissions or 0), 2)
         size = parse_number(get("size"))
+        side, entry_time, exit_time = _normalize_side(get("side")), parse_date(get("entry_time")), parse_date(get("exit_time"))
+        entry_price, exit_price = parse_number(get("entry_price")), parse_number(get("exit_price"))
+        trade_id = (get("trade_id") or "").strip()
+        if "buy_time" in mapping and "sell_time" in mapping:  # Tradovate: infer direction from fill order
+            bought, sold = _as_datetime(get("buy_time")), _as_datetime(get("sell_time"))
+            buy_price, sell_price = parse_number(get("buy_price")), parse_number(get("sell_price"))
+            long_trade = bought is None or sold is None or bought <= sold
+            side = "LONG" if long_trade else "SHORT"
+            first, last = (get("buy_time"), get("sell_time")) if long_trade else (get("sell_time"), get("buy_time"))
+            entry_time, exit_time = parse_date(first), parse_date(last)
+            entry_price, exit_price = (buy_price, sell_price) if long_trade else (sell_price, buy_price)
+            if not trade_id and (get("buy_fill") or get("sell_fill")):
+                trade_id = f"{(get('buy_fill') or '').strip()}-{(get('sell_fill') or '').strip()}"
         rows.append({
             "account_name": account_name or (get("account_name") or "").strip() or path.stem,
-            "trade_id": (get("trade_id") or "").strip() or f"{path.stem}-{i}",
+            "trade_id": trade_id or f"{path.stem}-{i}",
             "contract": (get("contract") or "").strip(),
-            "side": _normalize_side(get("side")),
+            "side": side,
             "size": int(size) if size is not None and size.is_integer() else size,
-            "entry_time": parse_date(get("entry_time")),
-            "exit_time": parse_date(get("exit_time")),
-            "trade_day": parse_date(get("trade_day"))[:10],
-            "entry_price": parse_number(get("entry_price")),
-            "exit_price": parse_number(get("exit_price")),
+            "entry_time": entry_time,
+            "exit_time": exit_time,
+            "trade_day": (parse_date(get("trade_day")) or entry_time)[:10],
+            "entry_price": entry_price,
+            "exit_price": exit_price,
             "pnl": pnl,
             "fees": fees,
             "commissions": commissions,
